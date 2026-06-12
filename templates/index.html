@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <div class="card center">
+    <h2>🎉 Secure Dashboard</h2>
+    <p>Welcome, <strong>{{ username }}</strong>!</p>
+    <p style="color: green; font-weight: 700;">✓ Authenticated via password + mobile MFA</p>
+    <a class="button-link" href="{{ url_for('logout') }}"><button class="secondary">Log Out</button></a>
+  </div>
+{% endblock %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Flask Passkey App</title>
+    <!-- Simple UI Styling -->
+    <!-- Local CSS -->
+<script src="https://cdn.jsdelivr.net/npm/@picocss/pico@2.1.1/css/postcss.config.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2.1.1/css/pico.min.css">
+
+    <!-- WebAuthn Library -->
+    <script src="https://cdn.jsdelivr.net/npm/@simplewebauthn/browser/dist/simplewebauthn-browser.min.js"></script> 
+
+
+</head>
+<body class="container" style="max-width: 600px; margin-top: 50px;">
+    <h2>🔐 Passkey Authentication</h2>
+    
+    <label for="username">Username</label>
+    <input type="text" id="username" placeholder="e.g., alice@example.com">
+    
+    <div style="display: flex; gap: 10px;">
+        <button onclick="registerPasskey()">Register Passkey</button>
+        <button onclick="loginPasskey()" class="secondary">Login with Passkey</button>
+    </div>
+
+    <article id="statusBox" style="display: none; margin-top: 20px;"></article>
+
+    <script>
+    // 1. REMOVE the old destructuring line completely:
+    // const { startRegistration, startAuthentication } = SimpleWebAuthnBrowser.WebAuthn;
+
+    function showMessage(text, isError = false) {
+        const box = document.getElementById("statusBox");
+        box.style.display = "block";
+        box.style.backgroundColor = isError ? "#ffdddd" : "#ddffdd";
+        box.style.color = isError ? "#990000" : "#006600";
+        box.innerText = text;
+    }
+
+    async function registerPasskey() {
+        const username = document.getElementById("username").value;
+        if(!username) return alert("Please enter a username first.");
+
+        try {
+            const res = await fetch("/generate-registration-options", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({ username })
+            });
+            const options = await res.json();
+            if(options.error) throw new Error(options.error);
+
+            // 2. FIX: Call the global window object directly here
+            const credential = await SimpleWebAuthnBrowser.WebAuthn.startRegistration(options);
+
+            const verifyRes = await fetch("/verify-registration", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify(credential)
+            });
+            const result = await verifyRes.json();
+            showMessage(result.message || result.error, !!result.error);
+        } catch (err) {
+            showMessage(err.message, true);
+        }
+    }
+
+    async function loginPasskey() {
+        const username = document.getElementById("username").value;
+        if(!username) return alert("Please enter your username to look up your passkey.");
+
+        try {
+            const res = await fetch("/generate-authentication-options", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({ username })
+            });
+            const options = await res.json();
+            if(options.error) throw new Error(options.error);
+
+            // 3. FIX: Call the global window object directly here
+            const credential = await SimpleWebAuthnBrowser.WebAuthn.startAuthentication(options);
+
+            const verifyRes = await fetch("/verify-authentication", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify(credential)
+            });
+            const result = await verifyRes.json();
+            showMessage(result.message || result.error, !!result.error);
+        } catch (err) {
+            showMessage(err.message, true);
+        }
+    }
+</script>
+
+</body>
+</html>

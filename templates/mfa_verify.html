@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <div class="card center">
+    <h2>Step 2: MFA Verification</h2>
+    <p class="muted">Open your mobile authenticator app and enter the current 6-digit code for <strong>Flask-MFA ({{ username }})</strong>.</p>
+
+    <form method="POST" action="{{ url_for('mfa_verify') }}">
+      <input type="text" name="totp_token" placeholder="Enter 6-digit code" autocomplete="off" required maxlength="6">
+      <button type="submit">Verify Code</button>
+    </form>
+  </div>
+{% endblock %}

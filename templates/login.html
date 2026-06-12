@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html>
+<head><title>Passkey Login</title></head>
+<body>
+  <h2>Passkey Authentication</h2>
+  <input id="username" placeholder="Username">
+
+  <button onclick="registerPasskey()">Register Passkey</button>
+  <button onclick="loginWithPasskey()">Login with Passkey</button>
+
+  <p id="status"></p>
+
+  <script>
+    const status = document.getElementById("status");
+
+    // Helper: base64url encode/decode
+    const b64url = {
+      encode: buf => btoa(String.fromCharCode(...new Uint8Array(buf)))
+        .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, ''),
+      decode: str => Uint8Array.from(
+        atob(str.replace(/-/g, '+').replace(/_/g, '/')),
+        c => c.charCodeAt(0)
+      ).buffer
+    };
+
+    function prepareOptions(options) {
+      options.challenge = b64url.decode(options.challenge);
+      options.user && (options.user.id = b64url.decode(options.user.id));
+      (options.excludeCredentials || []).forEach(c => c.id = b64url.decode(c.id));
+      (options.allowCredentials || []).forEach(c => c.id = b64url.decode(c.id));
+      return options;
+    }
+
+    function credentialToJSON(cred) {
+      const resp = cred.response;
+      return {
+        id: cred.id,
+        rawId: b64url.encode(cred.rawId),
+        type: cred.type,
+        response: {
+          clientDataJSON:    b64url.encode(resp.clientDataJSON),
+          attestationObject: resp.attestationObject
+            ? b64url.encode(resp.attestationObject) : undefined,
+          authenticatorData: resp.authenticatorData
+            ? b64url.encode(resp.authenticatorData) : undefined,
+          signature: resp.signature
+            ? b64url.encode(resp.signature) : undefined,
+          userHandle: resp.userHandle
+            ? b64url.encode(resp.userHandle) : undefined,
+        }
+      };
+    }
+
+    async function registerPasskey() {
+      const username = document.getElementById("username").value;
+      if (!navigator.credentials || !navigator.credentials.create) {
+        status.textContent = "❌ Passkeys not supported by this browser or insecure context.";
+        return;
+      }
+
+      try {
+        // 1. Get options from server
+        const optRes = await fetch("/register/begin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username })
+        });
+        if (!optRes.ok) throw new Error('server error: ' + optRes.status);
+        const options = prepareOptions(await optRes.json());
+
+        // 2. Create credential via browser
+        const credential = await navigator.credentials.create({ publicKey: options });
+        if (!credential) throw new Error('no credential created');
+
+        // 3. Send to server
+        const verRes = await fetch("/register/complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(credentialToJSON(credential))
+        });
+        const result = await verRes.json();
+        status.textContent = result.status === "ok"
+          ? "✅ Passkey registered!" : "❌ " + (result.error || 'unknown error');
+      } catch (err) {
+        status.textContent = "❌ " + (err.message || err);
+      }
+    }
+
+    async function loginWithPasskey() {
+      const username = document.getElementById("username").value;
+      if (!navigator.credentials || !navigator.credentials.get) {
+        status.textContent = "❌ Passkeys not supported by this browser or insecure context.";
+        return;
+      }
+
+      try {
+        // 1. Get challenge from server
+        const optRes = await fetch("/login/begin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username })
+        });
+        if (!optRes.ok) throw new Error('server error: ' + optRes.status);
+        const options = prepareOptions(await optRes.json());
+
+        // 2. Prompt biometric/device auth
+        const assertion = await navigator.credentials.get({ publicKey: options });
+        if (!assertion) throw new Error('no assertion returned');
+
+        // 3. Verify with server
+        const verRes = await fetch("/login/complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(credentialToJSON(assertion))
+        });
+        const result = await verRes.json();
+        if (result.status === "ok") window.location.href = "/";
+        else status.textContent = "❌ " + (result.error || 'authentication failed');
+      } catch (err) {
+        status.textContent = "❌ " + (err.message || err);
+      }
+    }
+  </script>
+</body>
+</html>
+

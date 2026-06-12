@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <div class="card center">
+    <h2>Step 2: Setup Authenticator</h2>
+    <p class="muted">Scan this QR code with Google Authenticator or Authy</p>
+    <img src="{{ url_for('qrcode_image') }}" alt="MFA QR Code" style="margin: 15px 0; max-width: 220px;">
+    <p class="muted">Or enter code manually: <code>{{ secret }}</code></p>
+
+    <form method="POST" action="{{ url_for('mfa_setup') }}">
+      <input type="text" name="totp_token" placeholder="Enter 6-digit code from app" autocomplete="off" required maxlength="6">
+      <button type="submit">Verify & Save</button>
+    </form>
+  </div>
+{% endblock %}
