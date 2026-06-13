@@ -4,6 +4,12 @@ import base64
 from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file
 import pyotp
 import qrcode
+import json
+import time
+from flask import Response, stream_with_context, jsonify
+
+# Simple in-memory subscribers list for Server-Sent Events (SSE)
+SSE_SUBSCRIBERS = []
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
@@ -232,6 +238,62 @@ def mfa_verify():
 def logout():
     session.clear()
     return redirect(url_for('login'))
+
+
+# --- Simple Server-Sent Events (SSE) for server->client notifications ---
+def event_stream(queue):
+    try:
+        while True:
+            msg = queue.pop(0) if queue else None
+            if msg:
+                data = json.dumps(msg)
+                yield f"data: {data}\n\n"
+            else:
+                # heartbeat to keep connection alive
+                yield 'data: {"type":"ping"}\n\n'
+            time.sleep(1)
+    except GeneratorExit:
+        return
+
+
+@app.route('/notifications/stream')
+def notifications_stream():
+    # Each client gets its own queue
+    q = []
+    SSE_SUBSCRIBERS.append(q)
+
+    @stream_with_context
+    def generator():
+        try:
+            for chunk in event_stream(q):
+                yield chunk
+        finally:
+            # cleanup on disconnect
+            try:
+                SSE_SUBSCRIBERS.remove(q)
+            except ValueError:
+                pass
+
+    return Response(generator(), mimetype='text/event-stream')
+
+
+@app.route('/notifications/send', methods=['POST'])
+def notifications_send():
+    """POST JSON {"title":"...","body":"...","data":{...}} to broadcast to connected clients."""
+    payload = request.get_json() or {}
+    if not payload.get('title') and not payload.get('body'):
+        return {"error": "missing title/body"}, 400
+
+    # Broadcast to all subscriber queues
+    for q in list(SSE_SUBSCRIBERS):
+        q.append({
+            "type": "notification",
+            "title": payload.get('title'),
+            "body": payload.get('body'),
+            "data": payload.get('data', {})
+        })
+
+    return {"status": "ok", "sent_to": len(SSE_SUBSCRIBERS)}
 
 if __name__ == '__main__':
     app.run(host="0.0.0.0",port=5000, debug=True)

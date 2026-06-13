@@ -37,6 +37,12 @@
   <!-- PWA Install Prompt -->
   <script src="{{ url_for('static', filename='pwa-install.js') }}"></script>
 
+  <!-- Notifications client (SSE) -->
+  <script src="{{ url_for('static', filename='notifications.js') }}"></script>
+
+  <!-- Enable notifications button (visible until user enables) -->
+  <button id="notify-enable-btn" style="position:fixed; right:20px; bottom:20px; z-index:10002; display:none; padding:10px 14px; border-radius:8px; background:#111; color:white; border:none;">Enable notifications</button>
+
   <script>
     // Register service worker for PWA support
     if ('serviceWorker' in navigator) {
