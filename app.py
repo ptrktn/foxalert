@@ -8,6 +8,15 @@ import qrcode
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
+xcfg = {
+    "passkey_login_enabled": True, # Toggle to enable/disable passkey registration/login flows in the UI
+    "password_login_enabled": False, # Toggle to enable/disable password-based login flows in the UI
+}
+
+@app.context_processor
+def inject_xcfg():
+    return {"xcfg": xcfg}
+
 # Mock Database (In-Memory)
 # Format: "username": {"password": "password123", "totp_secret": "BASE32SECRET...", "mfa_enabled": False}
 DB_USERS = {
@@ -36,6 +45,9 @@ def register_begin():
     username = data.get('username')
     if not username:
         return {"error": "missing username"}, 400
+
+    if not xcfg['passkey_login_enabled']:
+        return {"error": "passkey registration is disabled"}, 400
 
     # Ensure user record exists
     if username not in DB_USERS:
@@ -129,6 +141,9 @@ def index():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
+        if not xcfg['password_login_enabled']:
+            return {"error": "password login is disabled"}, 400
+
         username = request.form.get('username')
         password = request.form.get('password')
         
