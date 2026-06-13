@@ -29,7 +29,7 @@
   }
 
   // Request notification permission when user clicks the enable button
-  function setupEnableButton() {
+  async function setupEnableButton() {
     const btn = document.getElementById('notify-enable-btn');
     if (!btn) return;
     btn.style.display = 'inline-block';
@@ -37,11 +37,64 @@
       try {
         const perm = await Notification.requestPermission();
         statusLog('Notification permission: ' + perm);
+        if (perm === 'granted') {
+          try {
+            const sub = await subscribeForPush();
+            statusLog('Push subscription successful', sub);
+          } catch (err) {
+            console.warn('Push subscription failed', err);
+          }
+        }
         btn.style.display = 'none';
       } catch (e) {
         console.error(e);
       }
     });
+  }
+
+  // Convert base64 url string to Uint8Array for applicationServerKey
+  function urlBase64ToUint8Array(base64String) {
+    const padding = '='.repeat((4 - base64String.length % 4) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const rawData = atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; ++i) {
+      outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
+  }
+
+  async function subscribeForPush() {
+    if (!('serviceWorker' in navigator)) throw new Error('No service worker');
+    if (!('PushManager' in window)) throw new Error('Push not supported');
+
+    const reg = await navigator.serviceWorker.ready;
+    const res = await fetch('/vapid_public_key');
+    if (!res.ok) throw new Error('Failed to get VAPID key');
+    const body = await res.json();
+    const publicKey = body.publicKey;
+    if (!publicKey) throw new Error('VAPID public key not configured');
+
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(publicKey)
+    });
+
+    statusLog('Push subscription object created:', sub);
+
+    // Send subscription to server
+    const subscribeRes = await fetch('/push/subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(sub)
+    });
+    const subscribeBody = await subscribeRes.text();
+    statusLog('Push subscribe response', subscribeRes.status, subscribeBody);
+    if (!subscribeRes.ok) {
+      throw new Error('Subscription registration failed: ' + subscribeRes.status + ' ' + subscribeBody);
+    }
+    statusLog('Subscription registered with server:', subscribeBody);
+    return sub;
   }
 
   function connectSSE() {

@@ -2,4 +2,6 @@ flask
 pyotp
 qrcode
 pillow
+pywebpush
+cryptography
 

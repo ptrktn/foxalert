@@ -8,8 +8,18 @@ import json
 import time
 from flask import Response, stream_with_context, jsonify
 
+try:
+    from pywebpush import webpush, WebPushException
+except Exception:
+    webpush = None
+    WebPushException = Exception
+
 # Simple in-memory subscribers list for Server-Sent Events (SSE)
 SSE_SUBSCRIBERS = []
+
+# VAPID keys loaded from environment
+VAPID_PUBLIC_KEY = os.environ.get('VAPID_PUBLIC_KEY')
+VAPID_PRIVATE_KEY = os.environ.get('VAPID_PRIVATE_KEY')
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
@@ -20,8 +30,11 @@ xcfg = {
 }
 
 @app.context_processor
-def inject_xcfg():
-    return {"xcfg": xcfg}
+def inject_context():
+    return {
+        "xcfg": xcfg,
+        "current_user": session.get('user_id')
+    }
 
 # Mock Database (In-Memory)
 # Format: "username": {"password": "password123", "totp_secret": "BASE32SECRET...", "mfa_enabled": False}
@@ -294,6 +307,76 @@ def notifications_send():
         })
 
     return {"status": "ok", "sent_to": len(SSE_SUBSCRIBERS)}
+
+
+@app.route('/vapid_public_key')
+def vapid_public_key():
+    """Return the VAPID public key for PushManager subscription (base64 URL-safe)."""
+    if not VAPID_PUBLIC_KEY:
+        return {"error": "VAPID public key not configured. Set VAPID_PUBLIC_KEY env var."}, 500
+    return {"publicKey": VAPID_PUBLIC_KEY}
+
+
+@app.route('/push/subscribe', methods=['POST'])
+def push_subscribe():
+    """Store subscription info for the logged-in user."""
+    if 'user_id' not in session:
+        app.logger.warning('Push subscribe denied: no authenticated user in session')
+        return {"error": "not authenticated"}, 401
+    sub = request.get_json() or {}
+    if not sub.get('endpoint'):
+        app.logger.warning('Push subscribe denied: invalid subscription payload %s', sub)
+        return {"error": "invalid subscription"}, 400
+
+    username = session['user_id']
+    DB_USERS.setdefault(username, {}).update({'push_subscription': sub})
+    app.logger.info('Stored push subscription for user %s', username)
+    return {"status": "ok"}
+
+
+@app.route('/push/send', methods=['POST'])
+def push_send():
+    """Send Web Push to a user's stored subscription. POST {"username":"user1","title":"...","body":"..."}
+       Requires VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY env vars to be set."""
+    if webpush is None:
+        return {"error": "pywebpush not installed"}, 500
+    data = request.get_json() or {}
+    target = data.get('username')
+    title = data.get('title')
+    body = data.get('body')
+    if not target or not title:
+        return {"error": "missing username or title"}, 400
+
+    user = DB_USERS.get(target)
+    if not user:
+        return {"error": "unknown user"}, 404
+    sub = user.get('push_subscription')
+    if not sub:
+        return {"error": "user has no subscription"}, 404
+
+    if not VAPID_PRIVATE_KEY or not VAPID_PUBLIC_KEY:
+        app.logger.error('VAPID keys not configured for push send')
+        return {"error": "VAPID keys not configured"}, 500
+
+    payload = json.dumps({"title": title, "body": body, "data": data.get('data', {})})
+
+    try:
+        resp = webpush(
+            subscription_info=sub,
+            data=payload,
+            vapid_private_key=VAPID_PRIVATE_KEY,
+            vapid_claims={"sub": "mailto:admin@example.com"}
+        )
+        app.logger.info('Web push sent to user %s, status %s', target, getattr(resp, 'status_code', 'unknown'))
+        return {"status": "ok", "response": str(resp)}
+    except WebPushException as ex:
+        app.logger.exception('Web push failed for user %s', target)
+        return {"error": "webpush failed", "details": str(ex)}, 500
+
+
+@app.route('/service-worker.js')
+def service_worker():
+    return send_file(os.path.join(app.static_folder, 'service-worker.js'), mimetype='application/javascript')
 
 if __name__ == '__main__':
     app.run(host="0.0.0.0",port=5000, debug=True)

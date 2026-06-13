@@ -118,3 +118,34 @@ self.addEventListener('message', event => {
     self.skipWaiting();
   }
 });
+
+// Handle incoming push messages (Web Push)
+self.addEventListener('push', event => {
+  try {
+    const payload = event.data ? event.data.json() : { title: 'Notification', body: '' };
+    const title = payload.title || 'Notification';
+    const options = {
+      body: payload.body || '',
+      icon: '/static/icons/icon-192.png',
+      badge: '/static/icons/icon-192.png',
+      data: payload.data || {}
+    };
+    event.waitUntil(self.registration.showNotification(title, options));
+  } catch (err) {
+    console.error('Push handling error', err);
+  }
+});
+
+// Handle notification click
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  const url = event.notification.data && event.notification.data.url ? event.notification.data.url : '/';
+  event.waitUntil(
+    clients.matchAll({ type: 'window' }).then(windowClients => {
+      for (let client of windowClients) {
+        if (client.url === url && 'focus' in client) return client.focus();
+      }
+      if (clients.openWindow) return clients.openWindow(url);
+    })
+  );
+});

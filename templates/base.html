@@ -41,15 +41,18 @@
   <script src="{{ url_for('static', filename='notifications.js') }}"></script>
 
   <!-- Enable notifications button (visible until user enables) -->
+  {% if current_user %}
   <button id="notify-enable-btn" style="position:fixed; right:20px; bottom:20px; z-index:10002; display:none; padding:10px 14px; border-radius:8px; background:#111; color:white; border:none;">Enable notifications</button>
+  {% endif %}
 
   <script>
     // Register service worker for PWA support
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('{{ url_for("static", filename="service-worker.js") }}')
+        navigator.serviceWorker.register('/service-worker.js', { scope: '/' })
           .then(reg => {
             console.log('Service Worker registered successfully:', reg);
+            console.log('Service Worker active scope:', reg.scope);
             // Check for updates periodically
             setInterval(() => {
               reg.update();
