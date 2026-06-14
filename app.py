@@ -8,6 +8,17 @@ import json
 import time
 from flask import Response, stream_with_context, jsonify
 
+from db_init import initialize_database
+from models import (
+    create_user,
+    get_user,
+    get_passkeys,
+    create_passkey,
+    set_mfa_enabled,
+    store_push_subscription,
+    get_push_subscription,
+)
+
 try:
     from pywebpush import webpush, WebPushException
 except Exception:
@@ -36,16 +47,11 @@ def inject_context():
         "current_user": session.get('user_id')
     }
 
-# Mock Database (In-Memory)
-# Format: "username": {"password": "password123", "totp_secret": "BASE32SECRET...", "mfa_enabled": False}
-DB_USERS = {
-    "user1": {
-        "password": "password123",
-        "totp_secret": pyotp.random_base32(), # Pre-generate a unique secret for this user
-        "mfa_enabled": False,
-        "passkeys": []
-    }
-}
+def _ensure_user_record(username: str):
+    user = get_user(username)
+    if user:
+        return user
+    return create_user(username=username, password="", totp_secret=pyotp.random_base32())
 
 
 def _b64url_encode(b: bytes) -> str:
@@ -69,13 +75,7 @@ def register_begin():
         return {"error": "passkey registration is disabled"}, 400
 
     # Ensure user record exists
-    if username not in DB_USERS:
-        DB_USERS[username] = {
-            "password": "",
-            "totp_secret": pyotp.random_base32(),
-            "mfa_enabled": False,
-            "passkeys": []
-        }
+    _ensure_user_record(username)
 
     challenge = os.urandom(32)
     session['webauthn_challenge'] = _b64url_encode(challenge)
@@ -92,8 +92,8 @@ def register_begin():
         "excludeCredentials": []
     }
 
-    for cred in DB_USERS[username].get('passkeys', []):
-        options['excludeCredentials'].append({"type": "public-key", "id": cred['id']})
+    for cred_id in get_passkeys(username):
+        options['excludeCredentials'].append({"type": "public-key", "id": cred_id})
 
     return options
 
@@ -110,7 +110,7 @@ def register_complete():
     if not cred_id:
         return {"error": "missing credential id"}, 400
 
-    DB_USERS[username].setdefault('passkeys', []).append({"id": cred_id})
+    create_passkey(username, cred_id)
     return {"status": "ok"}
 
 
@@ -118,10 +118,11 @@ def register_complete():
 def login_begin():
     data = request.get_json() or {}
     username = data.get('username')
-    if not username or username not in DB_USERS:
+    user = get_user(username)
+    if not username or user is None:
         return {"error": "unknown user"}, 400
 
-    creds = DB_USERS[username].get('passkeys', [])
+    creds = get_passkeys(username)
     challenge = os.urandom(32)
     session['webauthn_challenge'] = _b64url_encode(challenge)
     session['webauthn_user'] = username
@@ -129,7 +130,7 @@ def login_begin():
     options = {
         "challenge": session['webauthn_challenge'],
         "timeout": 60000,
-        "allowCredentials": [{"type": "public-key", "id": c['id']} for c in creds],
+        "allowCredentials": [{"type": "public-key", "id": c} for c in creds],
         "userVerification": "preferred"
     }
     return options
@@ -149,6 +150,30 @@ def login_complete():
     return {"status": "ok"}
 
 
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if not xcfg['password_login_enabled']:
+        return {"error": "password registration is disabled"}, 400
+
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+        if not username or not password:
+            flash('Username and password are required.')
+            return render_template('register.html')
+
+        if get_user(username) is not None:
+            flash('That username is already taken. Please choose another.')
+            return render_template('register.html')
+
+        create_user(username=username, password=password, totp_secret=pyotp.random_base32())
+        session['pending_user_id'] = username
+        flash('Account created successfully. Complete MFA setup to finish registration.')
+        return redirect(url_for('mfa_setup'))
+
+    return render_template('register.html')
+
+
 # --- ROUTES ---
 
 @app.route('/')
@@ -166,8 +191,8 @@ def login():
         username = request.form.get('username')
         password = request.form.get('password')
         
-        user = DB_USERS.get(username)
-        if user and user['password'] == password:
+        user = get_user(username)
+        if user and user.password == password:
             # First factor approved! Stash the pending user ID in the session
             session['pending_user_id'] = username
             
@@ -186,22 +211,24 @@ def mfa_setup():
     if not username:
         return redirect(url_for('login'))
         
-    user = DB_USERS[username]
+    user = get_user(username)
+    if not user:
+        return redirect(url_for('login'))
     
     if request.method == 'POST':
         token = request.form.get('totp_token')
-        totp = pyotp.TOTP(user['totp_secret'])
+        totp = pyotp.TOTP(user.totp_secret)
         
         # Validate the user's setup token to confirm sync
         if totp.verify(token):
-            user['mfa_enabled'] = True # Secure user record flag
+            set_mfa_enabled(username, True)
             session['user_id'] = username # Fully elevate session to logged in
             session.pop('pending_user_id', None)
             return redirect(url_for('index'))
             
         flash('Invalid verification token. Please try scanning again.')
 
-    return render_template('mfa_setup.html', secret=user['totp_secret'])
+    return render_template('mfa_setup.html', secret=user.totp_secret)
 
 @app.route('/qrcode')
 def qrcode_image():
@@ -209,10 +236,12 @@ def qrcode_image():
     if not username:
         return "Unauthorized", 401
         
-    user = DB_USERS[username]
+    user = get_user(username)
+    if not user:
+        return "Unauthorized", 401
     
     # Generate the standard TOTP URI layout that authenticator apps parse
-    totp_uri = pyotp.totp.TOTP(user['totp_secret']).provisioning_uri(
+    totp_uri = pyotp.totp.TOTP(user.totp_secret).provisioning_uri(
         name=username, 
         issuer_name="Flask-MFA"
     )
@@ -231,11 +260,13 @@ def mfa_verify():
     if not username:
         return redirect(url_for('login'))
         
-    user = DB_USERS[username]
+    user = get_user(username)
+    if not user:
+        return redirect(url_for('login'))
     
     if request.method == 'POST':
         token = request.form.get('totp_token')
-        totp = pyotp.TOTP(user['totp_secret'])
+        totp = pyotp.TOTP(user.totp_secret)
         
         # Validates rolling timed tokens (handles subtle clock drifts cleanly)
         if totp.verify(token):
@@ -329,7 +360,7 @@ def push_subscribe():
         return {"error": "invalid subscription"}, 400
 
     username = session['user_id']
-    DB_USERS.setdefault(username, {}).update({'push_subscription': sub})
+    store_push_subscription(username, sub)
     app.logger.info('Stored push subscription for user %s', username)
     return {"status": "ok"}
 
@@ -347,10 +378,10 @@ def push_send():
     if not target or not title:
         return {"error": "missing username or title"}, 400
 
-    user = DB_USERS.get(target)
+    user = get_user(target)
     if not user:
         return {"error": "unknown user"}, 404
-    sub = user.get('push_subscription')
+    sub = get_push_subscription(target)
     if not sub:
         return {"error": "user has no subscription"}, 404
 
@@ -377,6 +408,13 @@ def push_send():
 @app.route('/service-worker.js')
 def service_worker():
     return send_file(os.path.join(app.static_folder, 'service-worker.js'), mimetype='application/javascript')
+
+@app.cli.command('init-db')
+def init_db_command():
+    """Initialize the database using the configured DATABASE_URL."""
+    initialize_database()
+    print('Database initialized.')
+
 
 if __name__ == '__main__':
     app.run(host="0.0.0.0",port=5000, debug=True)
