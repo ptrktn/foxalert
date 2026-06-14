@@ -22,3 +22,9 @@ webpush-test:
 	curl -X POST http://localhost:5000/push/send \
 	-H "Content-Type: application/json" \
 	-d '{"username":"user1","title":"Hello","body":"Web Push test"}'
+
+ # Get sample tracking data from around Narita Airport, Japan (35.7603892, 140.4076954) within 5km radius
+ .PHONY: fetch-tracking-sample-data
+fetch-tracking-sample-data:
+	curl -v https://opendata.adsb.fi/api/v3/lat/35.7603892/lon/140.4076954/dist/10 > /var/tmp/nrt_adsbfi.json
+	curl -v https://api.airplanes.live/v2/point/35.7603892/140.4076954/10 > /var/tmp/nrt_airplaneslive.json
