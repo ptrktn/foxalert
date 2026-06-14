@@ -138,7 +138,7 @@ def initialize_database():
                 CREATE INDEX IF NOT EXISTS idx_locations_geom ON locations USING GIST (geom);
                 CREATE INDEX IF NOT EXISTS idx_ac_geom ON ac USING GIST (geom);
                 CREATE INDEX IF NOT EXISTS idx_ac_created_at ON ac(created_at);
-                CREATE INDEX IF NOT EXISTS idx_ac_hex ON adsb_messages(hex);
+                CREATE INDEX IF NOT EXISTS idx_ac_hex ON ac(hex);
                 """
             )
 
