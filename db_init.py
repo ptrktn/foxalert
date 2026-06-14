@@ -70,8 +70,75 @@ def initialize_database():
                     username TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
                     name TEXT NOT NULL,
                     geom geometry(Point, 4326) NOT NULL,
+                    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+                    UNIQUE(username)
+                );
+                """
+            )
+
+            # Create ac table for aircraft tracking data
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS ac (
+                    id              BIGSERIAL PRIMARY KEY,
+
+                    -- Ingestion metadata
+                    ctime          BIGINT NOT NULL,           -- ingestion timestamp (epoch secs)
+
+                    -- Identification
+                    hex             VARCHAR(6) NOT NULL,      -- ICAO hex
+                    msg_type        TEXT,
+                    flight          TEXT,
+
+                    -- Raw fields
+                    r               TEXT,
+                    t               TEXT,
+
+                    -- Position
+                    lat             DOUBLE PRECISION,
+                    lon             DOUBLE PRECISION,
+                    geom            geometry(Point, 4326),
+
+                    -- Telemetry
+                    alt_baro        INTEGER,
+                    gs              DOUBLE PRECISION,         -- ground speed
+                    true_heading    DOUBLE PRECISION,
+
+                    -- Transponder
+                    squawk          TEXT,
+                    emergency       TEXT,
+
+                    -- Timing
+                    seen_pos        DOUBLE PRECISION,
+                    seen            DOUBLE PRECISION,
+
+                    -- Timestamp
                     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
                 );
+            """
+            )
+
+            cur.execute(
+                """
+                CREATE OR REPLACE FUNCTION ac_set_geom()
+                RETURNS trigger AS $$
+                BEGIN
+                    IF NEW.lat IS NOT NULL AND NEW.lon IS NOT NULL THEN
+                        NEW.geom := ST_SetSRID(ST_MakePoint(NEW.lon, NEW.lat), 4326);
+                    END IF;
+                    RETURN NEW;
+                END;
+                $$ LANGUAGE plpgsql;
+
+                CREATE TRIGGER trg_ac_set_geom
+                BEFORE INSERT OR UPDATE ON ac
+                FOR EACH ROW EXECUTE FUNCTION ac_set_geom();
+
+                CREATE INDEX IF NOT EXISTS idx_locations_geom ON locations USING GIST (geom);
+                CREATE INDEX IF NOT EXISTS idx_ac_geom ON ac USING GIST (geom);
+                CREATE INDEX IF NOT EXISTS idx_ac_created_at ON ac(created_at);
+                CREATE INDEX IF NOT EXISTS idx_ac_hex ON adsb_messages(hex);
                 """
             )
 
