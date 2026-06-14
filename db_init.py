@@ -131,7 +131,7 @@ def initialize_database():
                 END;
                 $$ LANGUAGE plpgsql;
 
-                CREATE TRIGGER trg_ac_set_geom
+                CREATE OR REPLACE TRIGGER trg_ac_set_geom
                 BEFORE INSERT OR UPDATE ON ac
                 FOR EACH ROW EXECUTE FUNCTION ac_set_geom();
 
