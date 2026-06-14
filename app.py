@@ -19,6 +19,14 @@ from models import (
     get_push_subscription,
 )
 
+# DB helper
+from db import get_conn
+
+# Scheduler for background maintenance tasks
+from apscheduler.schedulers.background import BackgroundScheduler
+import atexit
+from datetime import datetime
+
 try:
     from pywebpush import webpush, WebPushException
 except Exception:
@@ -39,6 +47,25 @@ xcfg = {
     "passkey_login_enabled": True, # Toggle to enable/disable passkey registration/login flows in the UI
     "password_login_enabled": False, # Toggle to enable/disable password-based login flows in the UI
 }
+
+# Background cleanup job: remove AC records older than 24 hours
+def cleanup_old_ac():
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM ac WHERE created_at < now() - interval '24 hours';")
+                deleted = cur.rowcount
+                conn.commit()
+        app.logger.info('AC cleanup ran at %s, deleted %s rows', datetime.utcnow().isoformat(), deleted)
+    except Exception as e:
+        app.logger.exception('Error running AC cleanup: %s', e)
+
+# Start scheduler to run cleanup every hour
+_scheduler = BackgroundScheduler()
+_scheduler.add_job(cleanup_old_ac, 'interval', hours=1, next_run_time=datetime.utcnow())
+_scheduler.start()
+# Ensure scheduler shuts down cleanly
+atexit.register(lambda: _scheduler.shutdown(wait=False))
 
 @app.context_processor
 def inject_context():
