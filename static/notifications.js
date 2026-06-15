@@ -69,7 +69,9 @@
     if (!('PushManager' in window)) throw new Error('Push not supported');
 
     const reg = await navigator.serviceWorker.ready;
-    const res = await fetch('/vapid_public_key');
+    const res = await fetch('/vapid_public_key', {
+      credentials: 'include'
+    });
     if (!res.ok) throw new Error('Failed to get VAPID key');
     const body = await res.json();
     const publicKey = body.publicKey;
@@ -85,6 +87,7 @@
     // Send subscription to server
     const subscribeRes = await fetch('/push/subscribe', {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(sub)
     });
