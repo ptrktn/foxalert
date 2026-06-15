@@ -18,6 +18,20 @@ def initialize_database():
     """Initialize PostgreSQL database schema and PostGIS extension."""
     with connect(DATABASE_URL) as conn:
         with conn.cursor() as cur:
+            if os.environ.get("DB_SCHEMA_RESET_ON_INIT", "false").lower() == "true":
+                # Tidy up any existing schema (for development/testing)
+                cur.execute("DROP TABLE IF EXISTS push_subscriptions CASCADE;")
+                cur.execute("DROP TABLE IF EXISTS passkeys CASCADE;")
+                cur.execute("DROP TABLE IF EXISTS users CASCADE;")
+                cur.execute("DROP TABLE IF EXISTS locations CASCADE;")
+                cur.execute("DROP TABLE IF EXISTS ac CASCADE;")
+                cur.execute("DROP FUNCTION IF EXISTS ac_set_geom();")
+                cur.execute("DROP TRIGGER IF EXISTS trg_ac_set_geom ON ac;")
+                cur.execute("DROP INDEX IF EXISTS idx_locations_geom;")
+                cur.execute("DROP INDEX IF EXISTS idx_ac_geom;")
+                cur.execute("DROP INDEX IF EXISTS idx_ac_created_at;")
+                cur.execute("DROP INDEX IF EXISTS idx_ac_hex;")
+
             # Enable PostGIS extension
             cur.execute("CREATE EXTENSION IF NOT EXISTS postgis;")
 
