@@ -26,9 +26,9 @@ from db import get_conn
 BATCH_SIZE = 200
 
 COLUMNS = [
-    'ctime', 'hex', 'msg_type', 'flight', 'r', 't',
+    'now_ts', 'hex', 'msg_type', 'flight', 'dbflags', 'r', 't',
     'lat', 'lon', 'alt_baro', 'gs', 'true_heading',
-    'squawk', 'emergency', 'seen_pos', 'seen'
+    'squawk', 'emergency', 'seen_pos', 'seen', 'ts'
 ]
 
 INSERT_SQL = (
@@ -53,11 +53,11 @@ def load_records(path: str) -> Iterable[Dict[str, Any]]:
 
     # If payload is dict with 'ac' key (our sample), yield each record and attach top-level ctime
     if isinstance(payload, dict):
-        meta_ctime = payload.get('ctime')
+        meta_time = payload.get('now')
         if 'ac' in payload and isinstance(payload['ac'], list):
             for rec in payload['ac']:
-                if meta_ctime is not None and 'ctime' not in rec:
-                    rec['ctime'] = meta_ctime
+                if meta_time is not None and 'now_ts' not in rec:
+                    rec['now_ts'] = meta_time
                 yield rec
             return
         # If dict is a single record, yield it
@@ -72,14 +72,15 @@ def load_records(path: str) -> Iterable[Dict[str, Any]]:
 
 
 def record_to_row(rec: Dict[str, Any]) -> tuple:
-    # ctime: prefer existing numeric ctime, else epoch seconds
-    ctime = rec.get('ctime') or int(time.time())
-    # map keys to columns (note: payload uses "type" -> msg_type)
+    # now: prefer existing numeric now_ts, else epoch seconds
+    now_ts = rec.get('ctime') or int(time.time())
+    # map keys to columns (note: payload uses "type" -> msg_type, "now" -> now_ts)
     return (
-        ctime,
+        now_ts,
         rec.get('hex'),
         rec.get('type') or rec.get('msg_type'),
         rec.get('flight'),
+        rec.get('dbflags'),
         rec.get('r'),
         rec.get('t'),
         rec.get('lat'),
@@ -90,7 +91,8 @@ def record_to_row(rec: Dict[str, Any]) -> tuple:
         rec.get('squawk'),
         rec.get('emergency'),
         rec.get('seen_pos'),
-        rec.get('seen')
+        rec.get('seen'),
+        int(rec.get('now_ts') - rec.get('seen_pos', 0))
     )
 
 

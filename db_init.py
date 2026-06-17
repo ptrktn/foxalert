@@ -98,12 +98,13 @@ def initialize_database():
                     id              BIGSERIAL PRIMARY KEY,
 
                     -- Ingestion metadata
-                    ctime          BIGINT NOT NULL,           -- ingestion timestamp (epoch secs)
+                    now_ts          BIGINT NOT NULL,           -- ingestion timestamp (epoch secs)
 
                     -- Identification
                     hex             VARCHAR(6) NOT NULL,      -- ICAO hex
                     msg_type        TEXT,
                     flight          TEXT,
+                    dbflags         INTEGER,
 
                     -- Raw fields
                     r               TEXT,
@@ -126,6 +127,9 @@ def initialize_database():
                     -- Timing
                     seen_pos        DOUBLE PRECISION,
                     seen            DOUBLE PRECISION,
+
+                    -- Derived timestamp: now_ts - seen_pos
+                    ts              BIGINT,
 
                     -- Timestamp
                     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
