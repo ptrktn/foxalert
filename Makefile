@@ -17,6 +17,10 @@ run:
 init-db:
 	. venv/bin/activate && FLASK_APP=app.py flask init-db
 
+.PHONY: reset-db
+reset-db:
+	$(MAKE) -e DB_SCHEMA_RESET_ON_INIT=true init-db
+
 .PHONY: sse-test
 sse-test:
 	curl -X POST http://localhost:5000/notifications/send \
