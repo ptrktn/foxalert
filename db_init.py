@@ -116,7 +116,7 @@ def initialize_database():
                     geom            geometry(Point, 4326),
 
                     -- Telemetry
-                    alt_baro        INTEGER,
+                    alt_baro        TEXT,
                     gs              DOUBLE PRECISION,         -- ground speed
                     true_heading    DOUBLE PRECISION,
 
