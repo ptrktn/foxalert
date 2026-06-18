@@ -83,14 +83,14 @@ def record_to_row(rec: Dict[str, Any]) -> tuple:
         rec.get('dbflags') or 0,
         rec.get('r'),
         rec.get('t'),
-        rec.get('lat') or rec.get('lastPosition').get('lat'),
-        rec.get('lon') or rec.get('lastPosition').get('lon'),
+        rec.get('lastPosition', {}).get('lat') if rec.get('lat') is None else rec.get('lat'),
+        rec.get('lastPosition', {}).get('lon') if rec.get('lon') is None else rec.get('lon'),
         rec.get('alt_baro'),
         rec.get('gs'),
         rec.get('true_heading'),
         rec.get('squawk'),
         rec.get('emergency'),
-        rec.get('seen_pos') or rec.get('lastPosition').get('seen_pos'),
+        rec.get('lastPosition', {}).get('seen_pos') if rec.get('seen_pos') is None else rec.get('seen_pos'),
         rec.get('seen'),
         int(rec.get('now_ts') - rec.get('seen_pos', 0))
     )
