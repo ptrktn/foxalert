@@ -36,5 +36,9 @@ webpush-test:
  # Get sample tracking data from around Narita Airport, Japan (35.7603892, 140.4076954) within 5km radius
  .PHONY: fetch-tracking-sample-data
 fetch-tracking-sample-data:
-	curl -v https://opendata.adsb.fi/api/v3/lat/35.7603892/lon/140.4076954/dist/10 | python3 -m json.tool > /var/tmp/nrt_adsbfi.json
-	curl -v https://api.airplanes.live/v2/point/35.7603892/140.4076954/10 | python3 -m json.tool > /var/tmp/nrt_airplaneslive.json
+	# curl -s https://opendata.adsb.fi/api/v3/lat/35.7603892/lon/140.4076954/dist/10 | python3 -m json.tool > /var/tmp/nrt_adsbfi.json
+	curl -s https://api.airplanes.live/v2/point/35.7603892/140.4076954/10 | python3 -m json.tool > /var/tmp/nrt_airplaneslive.json
+
+.PHONY: field-test-ingestion
+field-test-ingestion: fetch-tracking-sample-data
+	. venv/bin/activate && python3 scripts/ingest_adsb.py /var/tmp/nrt_airplaneslive.json
