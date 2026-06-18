@@ -60,13 +60,6 @@ def cleanup_old_ac():
     except Exception as e:
         app.logger.exception('Error running AC cleanup: %s', e)
 
-# Start scheduler to run cleanup every hour
-_scheduler = BackgroundScheduler()
-_scheduler.add_job(cleanup_old_ac, 'interval', hours=1, next_run_time=datetime.utcnow())
-_scheduler.start()
-# Ensure scheduler shuts down cleanly
-atexit.register(lambda: _scheduler.shutdown(wait=False))
-
 @app.context_processor
 def inject_context():
     return {
@@ -444,4 +437,12 @@ def init_db_command():
 
 
 if __name__ == '__main__':
-    app.run(host="0.0.0.0",port=5000, debug=True)
+    if 'init-db' not in os.sys.argv:
+        # Start scheduler to run cleanup every hour
+        _scheduler = BackgroundScheduler()
+        _scheduler.add_job(cleanup_old_ac, 'interval', hours=1, next_run_time=datetime.utcnow())
+        _scheduler.start()
+        # Ensure scheduler shuts down cleanly
+        atexit.register(lambda: _scheduler.shutdown(wait=False))
+
+    app.run(host="0.0.0.0",port=5000, debug=True, use_reloader=False)
