@@ -13,6 +13,10 @@ deps:
 run:
 	. venv/bin/activate && FLASK_APP=app.py flask run --host=0.0.0.0 --port=5000
 
+.PHONY: monitor
+monitor: data/aircraft.csv
+	. venv/bin/activate && python3 scripts/aerorange.py
+
 .PHONY: init-db
 init-db:
 	. venv/bin/activate && FLASK_APP=app.py flask init-db
@@ -42,3 +46,7 @@ fetch-tracking-sample-data:
 .PHONY: field-test-ingestion
 field-test-ingestion: fetch-tracking-sample-data
 	. venv/bin/activate && python3 scripts/ingest_adsb.py /var/tmp/nrt_airplaneslive.json
+
+data/aircraft.csv:
+	install -d -m 0755 data
+	curl -sL curl -LO https://github.com/wiedehopf/tar1090-db/raw/csv/aircraft.csv.gz | gzip -dc > data/aircraft.csv
